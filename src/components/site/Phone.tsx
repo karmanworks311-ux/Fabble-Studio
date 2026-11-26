@@ -62,6 +62,13 @@ export function PhoneDevice({ awake, demo, onDemoDone }: { awake: boolean; demo:
   const feed = useRef<HTMLDivElement>(null);
   const [unlocked, setUnlocked] = useState(false);
   const [active, setActive] = useState(0);
+  // endless feed: only the reels before, at and after `active` are mounted, stacked -1/0/+1 screens.
+  // A move slides all three by one screen, then re-centres on the new reel with no animation; the reel
+  // that slid in keeps its element (same key), so wrapping 5 -> 1 or 1 -> 5 looks like any other move.
+  const [shift, setShift] = useState(0); // -1, 0 or 1 screens while a move animates
+  const [drag, setDrag] = useState(0); // px the finger/mouse has pulled the feed
+  const [anim, setAnim] = useState(false);
+  const busy = useRef(false);
   const [muted, setMuted] = useState(true);
   const [followed, setFollowed] = useState(false);
   const [commentsFor, setCommentsFor] = useState<Reel | null>(null);
@@ -82,47 +89,71 @@ export function PhoneDevice({ awake, demo, onDemoDone }: { awake: boolean; demo:
     setCommentsFor(null);
   }, [awake]);
 
-  // the reel that fills the screen is the active one
+  const SLIDE_MS = 420;
+  const go = (dir: 1 | -1) => {
+    if (busy.current) return;
+    busy.current = true;
+    tryIt("swipe");
+    setAnim(true);
+    setDrag(0);
+    setShift(-dir);
+    setTimeout(() => {
+      // same render: re-centre without a transition, so nothing visibly moves
+      setAnim(false);
+      setShift(0);
+      setActive((a) => (a + dir + reels.length) % reels.length);
+      busy.current = false;
+    }, SLIDE_MS);
+  };
+  const goRef = useRef(go);
+  goRef.current = go;
+
+  // one wheel/trackpad flick = one reel, either way
   useEffect(() => {
     const root = feed.current;
     if (!root) return;
-    const io = new IntersectionObserver(
-      (es) => es.forEach((e) => e.isIntersecting && setActive(Number((e.target as HTMLElement).dataset.i))),
-      { root, threshold: 0.6 },
-    );
-    root.querySelectorAll("[data-i]").forEach((el) => io.observe(el));
-
-    // one wheel flick = one reel (small wheel deltas would otherwise snap back)
     let lockedUntil = 0;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const next = Math.round(root.scrollTop / root.clientHeight) + Math.sign(e.deltaY);
-      if (!e.deltaY || next < 0 || next > reels.length || e.timeStamp < lockedUntil) return;
-      lockedUntil = e.timeStamp + 700;
-      root.scrollTo({ top: next * root.clientHeight, behavior: "smooth" });
-    };
-    // endless feed: after the last reel comes a copy of the first; once the scroll settles on it,
-    // jump (unseen) to the real first reel, so scrolling on just keeps going
-    let settle: ReturnType<typeof setTimeout>;
-    const onScroll = () => {
-      clearTimeout(settle);
-      settle = setTimeout(() => {
-        if (Math.round(root.scrollTop / root.clientHeight) === reels.length) root.scrollTo({ top: 0, behavior: "instant" });
-      }, 120);
+      if (Math.abs(e.deltaY) < 4 || e.timeStamp < lockedUntil) return;
+      lockedUntil = e.timeStamp + SLIDE_MS + 250;
+      goRef.current(e.deltaY > 0 ? 1 : -1);
     };
     root.addEventListener("wheel", onWheel, { passive: false });
-    root.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      io.disconnect();
-      clearTimeout(settle);
-      root.removeEventListener("wheel", onWheel);
-      root.removeEventListener("scroll", onScroll);
-    };
+    return () => root.removeEventListener("wheel", onWheel);
   }, []);
 
-  useEffect(() => {
-    if (active > 0) tryIt("swipe");
-  }, [active]);
+  // drag/swipe: the feed follows the finger, then moves on or springs back
+  const pull = useRef<{ y: number; t: number; moving: boolean; dragged: boolean } | null>(null);
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (busy.current) return;
+    pull.current = { y: e.clientY, t: e.timeStamp, moving: false, dragged: false };
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const p = pull.current;
+    if (!p) return;
+    const dy = e.clientY - p.y;
+    if (!p.moving && Math.abs(dy) > 8) {
+      p.moving = true;
+      p.dragged = true;
+      feed.current?.setPointerCapture(e.pointerId);
+    }
+    if (p.moving) setDrag(dy);
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    const p = pull.current;
+    if (!p?.moving) return;
+    const dy = e.clientY - p.y;
+    const v = dy / Math.max(1, e.timeStamp - p.t); // px per ms
+    p.moving = false;
+    if (dy < -60 || v < -0.5) go(1);
+    else if (dy > 60 || v > 0.5) go(-1);
+    else {
+      setAnim(true);
+      setDrag(0);
+      setTimeout(() => setAnim(false), SLIDE_MS);
+    }
+  };
 
   const ghost = useDemo(
     awake && demo,
@@ -142,7 +173,7 @@ export function PhoneDevice({ awake, demo, onDemoDone }: { awake: boolean; demo:
       set({ x: 45, y: 74, down: true });
       await wait(500);
       set({ x: 45, y: 30, down: true });
-      feed.current?.scrollTo({ top: feed.current.clientHeight, behavior: "smooth" });
+      goRef.current(1);
       await wait(900);
       set({ x: 45, y: 30 });
       await wait(400);
@@ -201,31 +232,61 @@ export function PhoneDevice({ awake, demo, onDemoDone }: { awake: boolean; demo:
             <div
               ref={feed}
               tabIndex={0}
-              aria-label="Reels feed, scroll for the next reel"
-              className="absolute inset-0 snap-y snap-mandatory overflow-y-auto [scrollbar-width:none] focus-visible:outline-none [&::-webkit-scrollbar]:hidden"
+              aria-label="Reels feed: swipe, scroll or use the arrow keys for the next or previous reel"
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
+              // a drag must not also count as a tap on the reel or its buttons
+              onClickCapture={(e) => {
+                if (pull.current?.dragged) {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  pull.current = null;
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowDown" || e.key === "PageDown") go(1);
+                else if (e.key === "ArrowUp" || e.key === "PageUp") go(-1);
+                else return;
+                e.preventDefault();
+              }}
+              className="absolute inset-0 touch-none overflow-hidden focus-visible:outline-none"
             >
-              {[...reels, reels[0]].map((r, i) => (
-                <ReelSlide
-                  key={`${r.id}-${i}`}
-                  reel={r}
-                  index={i}
-                  active={awake && unlocked && i === active}
-                  muted={muted}
-                  onTap={toggleSound}
-                  followed={followed}
-                  onFollow={() => {
-                    setFollowed(true);
-                    tryIt("profile");
-                  }}
-                  onComment={() => {
-                    setCommentsFor(r);
-                    tryIt("comment");
-                  }}
-                  onTry={tryIt}
-                  onShare={share}
-                  flash={flash}
-                />
-              ))}
+              {([-1, 0, 1] as const).map((d) => {
+                const i = (active + d + reels.length) % reels.length;
+                const r = reels[i];
+                return (
+                  <div
+                    key={r.id}
+                    className={cn("absolute inset-0", anim && "transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)]")}
+                    style={{ transform: `translateY(calc(${(d + shift) * 100}% + ${drag}px))` }}
+                    aria-hidden={d !== 0}
+                    inert={d !== 0}
+                  >
+                    <ReelSlide
+                      reel={r}
+                      index={i}
+                      active={awake && unlocked && d === 0}
+                      near={awake && unlocked}
+                      muted={muted}
+                      onTap={toggleSound}
+                      followed={followed}
+                      onFollow={() => {
+                        setFollowed(true);
+                        tryIt("profile");
+                      }}
+                      onComment={() => {
+                        setCommentsFor(r);
+                        tryIt("comment");
+                      }}
+                      onTry={tryIt}
+                      onShare={share}
+                      flash={flash}
+                    />
+                  </div>
+                );
+              })}
             </div>
 
             {/* top bar */}
@@ -264,12 +325,8 @@ export function PhoneDevice({ awake, demo, onDemoDone }: { awake: boolean; demo:
                 className="absolute inset-0 z-40 flex touch-none flex-col items-center"
                 style={{ background: `linear-gradient(180deg, rgba(20,8,40,0.35), rgba(0,0,0,0.65)), url(${reelSrc(reels[0].id).poster}) center / cover` }}
               >
-                <p className="mt-[72px] text-[15px] font-medium text-white/85">
-                  {now && clockDate(now)}
-                </p>
-                <p className="text-[84px] font-semibold leading-none tracking-tight">
-                  {now ? clockTime(now) : " "}
-                </p>
+                <p className="mt-[72px] text-[15px] font-medium text-white/85">{now && clockDate(now)}</p>
+                <p className="text-[84px] font-semibold leading-none tracking-tight">{now ? clockTime(now) : " "}</p>
 
                 <button
                   type="button"
@@ -370,6 +427,7 @@ function ReelSlide({
   reel,
   index,
   active,
+  near,
   muted,
   onTap,
   followed,
@@ -382,6 +440,7 @@ function ReelSlide({
   reel: Reel;
   index: number;
   active: boolean;
+  near: boolean;
   muted: boolean;
   onTap: () => void;
   followed: boolean;
@@ -408,17 +467,21 @@ function ReelSlide({
   useEffect(() => {
     const v = video.current;
     if (!v) return;
+    // the reels either side load their first frame so they slide in ready; only the one on screen plays
+    if ((active || near) && !v.getAttribute("src")) {
+      v.preload = active ? "auto" : "metadata";
+      v.src = src.full;
+    }
     if (!active) return v.pause();
-    if (!v.getAttribute("src")) v.src = src.full; // load only once it is on screen
     v.play().catch(() => {});
-  }, [active, src.full]);
+  }, [active, near, src.full]);
 
   const handle = studio.instagram.handle;
   const rail = "flex flex-col items-center";
   const icon = "size-[26px] drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]";
 
   return (
-    <section data-i={index} aria-label={`Reel ${index + 1}: ${reel.title}`} className="relative h-full snap-start snap-always">
+    <section aria-label={`Reel ${index + 1} of ${reels.length}: ${reel.title}`} className="relative h-full">
       <video
         ref={video}
         className="absolute inset-0 size-full object-cover"
@@ -454,7 +517,12 @@ function ReelSlide({
           aria-label="Like"
           className={rail}
         >
-          <motion.span key={String(liked)} initial={{ scale: liked ? 0.6 : 1 }} animate={{ scale: 1 }} transition={{ type: "spring", damping: 9, stiffness: 400 }}>
+          <motion.span
+            key={String(liked)}
+            initial={{ scale: liked ? 0.6 : 1 }}
+            animate={{ scale: 1 }}
+            transition={{ type: "spring", damping: 9, stiffness: 400 }}
+          >
             <Heart className={cn(icon, liked && "fill-[#ff3040] text-[#ff3040]")} />
           </motion.span>
         </button>
@@ -473,7 +541,12 @@ function ReelSlide({
           aria-label={reposted ? "Undo repost" : "Repost"}
           className={cn(rail, "relative")}
         >
-          <motion.span key={String(reposted)} initial={{ scale: reposted ? 0.6 : 1, rotate: reposted ? -90 : 0 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", damping: 10, stiffness: 350 }}>
+          <motion.span
+            key={String(reposted)}
+            initial={{ scale: reposted ? 0.6 : 1, rotate: reposted ? -90 : 0 }}
+            animate={{ scale: 1, rotate: 0 }}
+            transition={{ type: "spring", damping: 10, stiffness: 350 }}
+          >
             {/* reposted: same white icon with a tick in the middle */}
             <span className="relative block">
               <Repeat2 className={icon} strokeWidth={reposted ? 2.4 : 2} />
@@ -488,7 +561,9 @@ function ReelSlide({
                 exit={{ opacity: 0, x: 10 }}
                 className="absolute right-[calc(100%+10px)] top-1/2 flex -translate-y-1/2 items-center gap-2 whitespace-nowrap rounded-full bg-white py-1 pl-1 pr-3 text-[12px] font-semibold text-black shadow-lg"
               >
-                <span className="flex size-6 items-center justify-center rounded-full bg-gradient-to-br from-[#ff7a2c] to-[#a35cff] text-[10px] text-white">Y</span>
+                <span className="flex size-6 items-center justify-center rounded-full bg-gradient-to-br from-[#ff7a2c] to-[#a35cff] text-[10px] text-white">
+                  Y
+                </span>
                 Reposted
                 <span className="font-normal text-black/50">· Add a note</span>
               </motion.span>
