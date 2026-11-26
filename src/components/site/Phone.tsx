@@ -6,6 +6,7 @@ import {
   BatteryFull,
   Bookmark,
   Camera,
+  Check,
   Clapperboard,
   Flashlight,
   Heart,
@@ -29,6 +30,17 @@ import { useStored } from "@/lib/useStored";
 import { clockDate, clockTime } from "@/lib/clock";
 import { cn } from "@/lib/utils";
 import { Ghost, useDemo } from "./Ghost";
+
+// notification-style nudges, one at a time, until the visitor has tried each thing
+const hints = [
+  { id: "like", text: "Tap ♥ to like this reel" },
+  { id: "comment", text: "Tap the bubble to leave us a comment" },
+  { id: "repost", text: "Tap ↻ to repost it" },
+  { id: "profile", text: `Tap ${studio.instagram.handle} to visit our profile` },
+  { id: "sound", text: "Tap the video to turn the sound on" },
+  { id: "swipe", text: "Swipe up for the next reel" },
+] as const;
+type HintId = (typeof hints)[number]["id"];
 
 /** Live clock text, empty until mounted so the server render matches. */
 function useClock() {
@@ -57,6 +69,10 @@ export function PhoneDevice({ awake, demo, onDemoDone }: { awake: boolean; demo:
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const musicOn = useMusicPlaying();
   const now = useClock();
+  const [tried, setTried] = useState<HintId[]>([]);
+  const tryIt = (id: HintId) => setTried((t) => (t.includes(id) ? t : [...t, id]));
+  const [cycle, setCycle] = useState(0);
+  const [hintOn, setHintOn] = useState(false);
 
   // putting the phone down locks it again
   useEffect(() => {
@@ -76,21 +92,38 @@ export function PhoneDevice({ awake, demo, onDemoDone }: { awake: boolean; demo:
     );
     root.querySelectorAll("[data-i]").forEach((el) => io.observe(el));
 
-    // one wheel flick = one reel (small wheel deltas would otherwise snap back)
+    // one wheel flick = one reel (small wheel deltas would otherwise snap back); past the last reel it loops to the first
     let lockedUntil = 0;
+    const current = () => Math.round(root.scrollTop / root.clientHeight);
+    const toFirst = () => root.scrollTo({ top: 0, behavior: "smooth" });
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const next = Math.round(root.scrollTop / root.clientHeight) + Math.sign(e.deltaY);
-      if (!e.deltaY || next < 0 || next >= reels.length || e.timeStamp < lockedUntil) return;
+      const next = current() + Math.sign(e.deltaY);
+      if (!e.deltaY || next < 0 || e.timeStamp < lockedUntil) return;
       lockedUntil = e.timeStamp + 700;
+      if (next >= reels.length) return toFirst();
       root.scrollTo({ top: next * root.clientHeight, behavior: "smooth" });
     };
+    // touch: snap scrolling handles reel to reel; only a swipe up on the last reel needs the loop
+    let startY = 0;
+    const onTouchStart = (e: TouchEvent) => (startY = e.touches[0].clientY);
+    const onTouchEnd = (e: TouchEvent) => {
+      if (current() === reels.length - 1 && startY - e.changedTouches[0].clientY > 50) toFirst();
+    };
     root.addEventListener("wheel", onWheel, { passive: false });
+    root.addEventListener("touchstart", onTouchStart, { passive: true });
+    root.addEventListener("touchend", onTouchEnd);
     return () => {
       io.disconnect();
       root.removeEventListener("wheel", onWheel);
+      root.removeEventListener("touchstart", onTouchStart);
+      root.removeEventListener("touchend", onTouchEnd);
     };
   }, []);
+
+  useEffect(() => {
+    if (active > 0) tryIt("swipe");
+  }, [active]);
 
   const ghost = useDemo(
     awake && demo,
@@ -119,6 +152,19 @@ export function PhoneDevice({ awake, demo, onDemoDone }: { awake: boolean; demo:
     onDemoDone,
   );
 
+  const untried = hints.filter((h) => !tried.includes(h.id));
+  const hint = untried.length ? untried[cycle % untried.length] : null;
+  const showHints = awake && unlocked && !commentsFor && !ghost;
+  const hintId = hint?.id;
+  useEffect(() => {
+    setHintOn(false);
+    if (!showHints || !hintId) return;
+    const t1 = setTimeout(() => setHintOn(true), 1200);
+    const t2 = setTimeout(() => setHintOn(false), 5700);
+    const t3 = setTimeout(() => setCycle((n) => n + 1), 6400);
+    return () => [t1, t2, t3].forEach(clearTimeout);
+  }, [showHints, hintId, cycle]);
+
   const flash = (msg: string) => {
     setToast(msg);
     clearTimeout(toastTimer.current);
@@ -141,6 +187,7 @@ export function PhoneDevice({ awake, demo, onDemoDone }: { awake: boolean; demo:
   };
 
   const toggleSound = () => {
+    if (muted) tryIt("sound");
     if (muted && musicOn) toggleMusic(); // the site music would talk over the reel
     setMuted(!muted);
   };
@@ -167,8 +214,15 @@ export function PhoneDevice({ awake, demo, onDemoDone }: { awake: boolean; demo:
                   muted={muted}
                   onTap={toggleSound}
                   followed={followed}
-                  onFollow={() => setFollowed(true)}
-                  onComment={() => setCommentsFor(r)}
+                  onFollow={() => {
+                    setFollowed(true);
+                    tryIt("profile");
+                  }}
+                  onComment={() => {
+                    setCommentsFor(r);
+                    tryIt("comment");
+                  }}
+                  onTry={tryIt}
                   onShare={share}
                   flash={flash}
                 />
@@ -202,7 +256,13 @@ export function PhoneDevice({ awake, demo, onDemoDone }: { awake: boolean; demo:
                 inert={!awake}
                 initial={{ y: 0 }}
                 exit={{ y: "-100%", transition: { duration: 0.55, ease: [0.65, 0, 0.35, 1] } }}
-                className="absolute inset-0 z-40 flex flex-col items-center"
+                // swipe up (drag, touch or a trackpad/wheel scroll) opens it, same as tapping the notification
+                drag="y"
+                dragConstraints={{ top: 0, bottom: 0 }}
+                dragElastic={{ top: 0.5, bottom: 0.05 }}
+                onDragEnd={(_, i) => (i.offset.y < -60 || i.velocity.y < -400) && setUnlocked(true)}
+                onWheel={(e) => e.deltaY > 15 && setUnlocked(true)}
+                className="absolute inset-0 z-40 flex touch-none flex-col items-center"
                 style={{ background: `linear-gradient(180deg, rgba(20,8,40,0.35), rgba(0,0,0,0.65)), url(${reelSrc(reels[0].id).poster}) center / cover` }}
               >
                 <p className="mt-[72px] text-[15px] font-medium text-white/85">
@@ -228,7 +288,7 @@ export function PhoneDevice({ awake, demo, onDemoDone }: { awake: boolean; demo:
                     <span className="block text-white/90">posted a new reel: {reels[0].title}. Tap to watch.</span>
                   </span>
                 </button>
-                <p className="mb-[86px] animate-pulse text-xs text-white/75">Tap the notification to open</p>
+                <p className="mb-[86px] animate-pulse text-xs text-white/75">Swipe up or tap the notification</p>
 
                 <div aria-hidden className="absolute inset-x-10 bottom-10 flex justify-between">
                   <span className="flex size-12 items-center justify-center rounded-full bg-black/35 backdrop-blur">
@@ -253,6 +313,31 @@ export function PhoneDevice({ awake, demo, onDemoDone }: { awake: boolean; demo:
           </div>
           <span aria-hidden className="pointer-events-none absolute left-1/2 top-3 z-50 h-[28px] w-[100px] -translate-x-1/2 rounded-full bg-black" />
           <span aria-hidden className="pointer-events-none absolute bottom-1.5 left-1/2 z-50 h-1 w-32 -translate-x-1/2 rounded-full bg-white/80" />
+
+          <div aria-live="polite" className="pointer-events-none absolute inset-x-2.5 top-12 z-50">
+            <AnimatePresence>
+              {hintOn && hint && (
+                <motion.div
+                  key={hint.id}
+                  initial={{ y: "-130%", opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: "-130%", opacity: 0 }}
+                  transition={{ type: "spring", damping: 26, stiffness: 300 }}
+                  className="flex items-center gap-3 rounded-[20px] bg-[#2a2a30]/85 p-3 shadow-[0_10px_30px_rgba(0,0,0,0.45)] ring-1 ring-white/15 backdrop-blur-xl"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/media/logo-mark.png" alt="" className="size-9 shrink-0 rounded-[9px] bg-white object-contain p-1" />
+                  <span className="min-w-0 flex-1 text-[13px] leading-snug">
+                    <span className="flex justify-between">
+                      <b className="font-semibold">Try it</b>
+                      <span className="text-white/60">now</span>
+                    </span>
+                    <span className="block text-white/90">{hint.text}</span>
+                  </span>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
           <div aria-live="polite" className="pointer-events-none absolute inset-x-0 bottom-[76px] z-50 flex justify-center">
             <AnimatePresence>
@@ -292,6 +377,7 @@ function ReelSlide({
   onFollow,
   onComment,
   onShare,
+  onTry,
   flash,
 }: {
   reel: Reel;
@@ -303,6 +389,7 @@ function ReelSlide({
   onFollow: () => void;
   onComment: () => void;
   onShare: () => void;
+  onTry: (id: HintId) => void;
   flash: (msg: string) => void;
 }) {
   const video = useRef<HTMLVideoElement>(null);
@@ -311,6 +398,13 @@ function ReelSlide({
   const [liked, setLiked] = useStored(`fabble-reel-${reel.id}-liked`, false);
   const [saved, setSaved] = useStored(`fabble-reel-${reel.id}-saved`, false);
   const [reposted, setReposted] = useStored(`fabble-reel-${reel.id}-reposted`, false);
+  // after reposting, a small "Reposted" bubble with an "Add a note" field shows beside the button for a moment
+  const [repostNote, setRepostNote] = useState(false);
+  useEffect(() => {
+    if (!repostNote) return;
+    const t = setTimeout(() => setRepostNote(false), 2600);
+    return () => clearTimeout(t);
+  }, [repostNote]);
 
   useEffect(() => {
     const v = video.current;
@@ -351,8 +445,19 @@ function ReelSlide({
 
       {/* action rail */}
       <div className="absolute bottom-[72px] right-2.5 flex flex-col items-center gap-[18px]">
-        <button type="button" onClick={() => setLiked(!liked)} aria-pressed={liked} aria-label="Like" className={rail}>
-          <Heart className={cn(icon, liked && "fill-[#ff3040] text-[#ff3040]")} />
+        <button
+          type="button"
+          onClick={() => {
+            setLiked(!liked);
+            onTry("like");
+          }}
+          aria-pressed={liked}
+          aria-label="Like"
+          className={rail}
+        >
+          <motion.span key={String(liked)} initial={{ scale: liked ? 0.6 : 1 }} animate={{ scale: 1 }} transition={{ type: "spring", damping: 9, stiffness: 400 }}>
+            <Heart className={cn(icon, liked && "fill-[#ff3040] text-[#ff3040]")} />
+          </motion.span>
         </button>
         <button type="button" onClick={onComment} aria-label="Comments" className={rail}>
           <MessageCircle className={cn(icon, "-scale-x-100")} />
@@ -361,13 +466,35 @@ function ReelSlide({
           type="button"
           onClick={() => {
             setReposted(!reposted);
-            flash(reposted ? "Repost removed" : "Reposted");
+            setRepostNote(!reposted);
+            onTry("repost");
+            if (reposted) flash("Repost removed");
           }}
           aria-pressed={reposted}
-          aria-label="Repost"
-          className={rail}
+          aria-label={reposted ? "Undo repost" : "Repost"}
+          className={cn(rail, "relative")}
         >
-          <Repeat2 className={cn(icon, reposted && "text-[#3fd17a]")} />
+          <motion.span key={String(reposted)} initial={{ scale: reposted ? 0.6 : 1, rotate: reposted ? -90 : 0 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", damping: 10, stiffness: 350 }}>
+            {/* reposted: same white icon with a tick in the middle */}
+            <span className="relative block">
+              <Repeat2 className={icon} strokeWidth={reposted ? 2.4 : 2} />
+              {reposted && <Check className="absolute left-1/2 top-1/2 size-[11px] -translate-x-1/2 -translate-y-1/2" strokeWidth={3.5} aria-hidden />}
+            </span>
+          </motion.span>
+          <AnimatePresence>
+            {repostNote && (
+              <motion.span
+                initial={{ opacity: 0, x: 10, scale: 0.9 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={{ opacity: 0, x: 10 }}
+                className="absolute right-[calc(100%+10px)] top-1/2 flex -translate-y-1/2 items-center gap-2 whitespace-nowrap rounded-full bg-white py-1 pl-1 pr-3 text-[12px] font-semibold text-black shadow-lg"
+              >
+                <span className="flex size-6 items-center justify-center rounded-full bg-gradient-to-br from-[#ff7a2c] to-[#a35cff] text-[10px] text-white">Y</span>
+                Reposted
+                <span className="font-normal text-black/50">· Add a note</span>
+              </motion.span>
+            )}
+          </AnimatePresence>
         </button>
         <button type="button" onClick={onShare} aria-label="Share the website" className={rail}>
           <Send className={icon} />
@@ -394,7 +521,7 @@ function ReelSlide({
         <div className="flex items-center gap-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/media/logo-mark.png" alt="" className="size-8 rounded-full bg-white object-contain p-1" />
-          <a href={studio.instagram.href} target="_blank" rel="noopener noreferrer" className="font-semibold">
+          <a href={studio.instagram.href} target="_blank" rel="noopener noreferrer" onClick={() => onTry("profile")} className="font-semibold">
             {handle}
           </a>
           <a

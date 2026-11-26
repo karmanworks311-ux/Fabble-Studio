@@ -47,8 +47,8 @@ export default function DeskScene({ focus, lamp, onToggleLamp, onPick, onScreenR
       <fog attach="fog" args={["#07070a", 11, 24]} />
       <Rig focus={focus} onRect={onScreenRect} />
       <Lamp on={lamp} onToggle={onToggleLamp} shadowSize={small ? 512 : 1024} />
-      <Laptop lamp={lamp} onPick={() => onPick("laptop")} />
-      <Phone lamp={lamp} onPick={() => onPick("phone")} />
+      <Laptop lamp={lamp} idle={focus === "desk"} onPick={() => onPick("laptop")} />
+      <Phone lamp={lamp} idle={focus === "desk"} onPick={() => onPick("phone")} />
       <Props />
     </Canvas>
   );
@@ -76,8 +76,8 @@ function Rig({ focus, onRect }: { focus: Focus; onRect: (r: ScreenRect | null) =
       // keep the whole desk, lamp to mug (about 9.6 wide, 4.2 tall), in frame at any aspect
       // portrait screens crop to laptop + phone instead of backing far away
       const dist = Math.max((aspect < 1 ? 6.4 : 9.6) / (2 * half * aspect), 4.2 / (2 * half));
-      goalTarget.set(-0.15, 0.95, 0);
-      goalPos.set(-0.15, 0.95 + dist * 0.4, dist * 0.92);
+      goalTarget.set(0, 0.95, 0);
+      goalPos.set(0, 0.95 + dist * 0.4, dist * 0.92);
     } else {
       // stop in front of the screen, close enough that it fills the view
       const screen = scene.getObjectByName(`${focus}-screen`) as Mesh | undefined;
@@ -234,7 +234,7 @@ function Lamp({ on, onToggle, shadowSize }: { on: boolean; onToggle: () => void;
 
   return (
     <group
-      position={[-3.6, 0, -0.9]}
+      position={[-3.0, 0, -0.9]}
       rotation={[0, -0.35, 0]}
       scale={1.4}
       onPointerOver={(e) => {
@@ -407,11 +407,15 @@ function Keyboard({ lit }: { lit: boolean }) {
   );
 }
 
-function Laptop({ lamp, onPick }: { lamp: boolean; onPick: () => void }) {
+function Laptop({ lamp, idle, onPick }: { lamp: boolean; idle: boolean; onPick: () => void }) {
   const [hovered, setHovered] = useHover();
   const lift = useRef<Object3D>(null);
   const invalidate = useThree((st) => st.invalidate);
   useEffect(() => invalidate(), [hovered, invalidate]);
+  // only lift while resting on the desk: once held, moving it would drag the live screen pinned over it
+  useEffect(() => {
+    if (!idle) setHovered(false);
+  }, [idle, setHovered]);
   useFrame((_, dt) => {
     const l = lift.current;
     if (!l) return;
@@ -458,25 +462,60 @@ function Laptop({ lamp, onPick }: { lamp: boolean; onPick: () => void }) {
       c.textAlign = "left";
       if (logo) c.drawImage(logo, 20, 12, 26, 26);
       // dock
-      const tiles = [...sites.map((s) => ({ label: s.name[0], fill: `rgb(${s.accent})` })), { label: "▶", fill: "#c0389f" }];
+      // same proportions as the live dock (1cqw = 16px here): gradient tiles, a divider, the reels app
       const size = 86;
-      const gap = 18;
-      const dw = tiles.length * size + (tiles.length - 1) * gap + 36;
+      const gap = 16;
+      const pad = 13;
+      const div = 7;
+      const n = sites.length;
+      const dw = pad * 2 + n * size + (n - 1) * gap + gap * 2 + div + size;
       const dx = 800 - dw / 2;
+      const top = 869;
       c.fillStyle = "rgba(255,255,255,0.16)";
-      roundRect(c, dx, 870, dw, size + 28, 30);
+      roundRect(c, dx, top, dw, size + pad * 2, 29);
       c.fill();
-      tiles.forEach((t, i) => {
-        const x = dx + 18 + i * (size + gap);
-        c.fillStyle = t.fill;
-        roundRect(c, x, 884, size, size, 22);
+      const tile = (x: number, from: string, to: string) => {
+        const g = c.createLinearGradient(x, top + pad, x + size, top + pad + size);
+        g.addColorStop(0, from);
+        g.addColorStop(1, to);
+        c.fillStyle = g;
+        roundRect(c, x, top + pad, size, size, 21);
         c.fill();
+      };
+      sites.forEach((s, i) => {
+        const x = dx + pad + i * (size + gap);
+        tile(x, `rgba(${s.accent},1)`, `rgba(${s.accent},0.6)`);
         c.fillStyle = "white";
         c.font = "700 42px system-ui, sans-serif";
         c.textAlign = "center";
-        c.fillText(t.label, x + size / 2, 884 + size / 2 + 15);
+        c.fillText(s.name[0], x + size / 2, top + pad + size / 2 + 15);
         c.textAlign = "left";
       });
+      const lx = dx + pad + n * size + (n - 1) * gap + gap + div / 2;
+      c.fillStyle = "rgba(255,255,255,0.25)";
+      c.fillRect(lx, top + pad + 6, 1.5, size - 12);
+      // reels app: clapperboard
+      const rx = lx + div / 2 + gap;
+      const ry = top + pad;
+      tile(rx, "#ff3d2e", "#a35cff");
+      c.strokeStyle = "white";
+      c.lineWidth = 4.5;
+      c.lineJoin = "round";
+      c.lineCap = "round";
+      roundRect(c, rx + 24, ry + 38, 38, 26, 5);
+      c.stroke();
+      c.beginPath();
+      c.moveTo(rx + 24, ry + 38);
+      c.lineTo(rx + 22, ry + 30);
+      c.lineTo(rx + 58, ry + 21);
+      c.lineTo(rx + 60, ry + 29);
+      c.moveTo(rx + 33, ry + 27);
+      c.lineTo(rx + 38, ry + 35);
+      c.moveTo(rx + 44, ry + 24);
+      c.lineTo(rx + 49, ry + 32);
+      c.moveTo(rx + 24, ry + 38);
+      c.lineTo(rx + 62, ry + 38);
+      c.stroke();
     },
     ["/media/logo-mark.png"],
     [now],
@@ -484,15 +523,15 @@ function Laptop({ lamp, onPick }: { lamp: boolean; onPick: () => void }) {
 
   return (
     <group
-      position={[-0.55, 0, 0.15]}
+      position={[0, 0, 0.15]}
       onPointerOver={(e) => {
         e.stopPropagation();
-        setHovered(true);
+        if (idle) setHovered(true);
       }}
       onPointerOut={() => setHovered(false)}
       onClick={(e) => {
         e.stopPropagation();
-        onPick();
+        if (idle) onPick();
       }}
     >
       {/* cooling pad legs raise the back */}
@@ -553,11 +592,15 @@ function Laptop({ lamp, onPick }: { lamp: boolean; onPick: () => void }) {
 
 /* ---------------------------------------------------------------- phone */
 
-function Phone({ lamp, onPick }: { lamp: boolean; onPick: () => void }) {
+function Phone({ lamp, idle, onPick }: { lamp: boolean; idle: boolean; onPick: () => void }) {
   const [hovered, setHovered] = useHover();
   const lift = useRef<Object3D>(null);
   const invalidate = useThree((st) => st.invalidate);
   useEffect(() => invalidate(), [hovered, invalidate]);
+  // only lift while resting on the desk: once held, moving it would drag the live screen pinned over it
+  useEffect(() => {
+    if (!idle) setHovered(false);
+  }, [idle, setHovered]);
   useFrame((_, dt) => {
     const l = lift.current;
     if (!l) return;
@@ -612,7 +655,7 @@ function Phone({ lamp, onPick }: { lamp: boolean; onPick: () => void }) {
       c.fillText("now", 656, 1240);
       c.textAlign = "center";
       c.font = "24px system-ui, sans-serif";
-      c.fillText("Tap the notification to open", 360, 1390);
+      c.fillText("Swipe up or tap the notification", 360, 1390);
       c.textAlign = "left";
       // island + home bar
       c.fillStyle = "black";
@@ -632,12 +675,12 @@ function Phone({ lamp, onPick }: { lamp: boolean; onPick: () => void }) {
       rotation={[0, -0.32, 0]}
       onPointerOver={(e) => {
         e.stopPropagation();
-        setHovered(true);
+        if (idle) setHovered(true);
       }}
       onPointerOut={() => setHovered(false)}
       onClick={(e) => {
         e.stopPropagation();
-        onPick();
+        if (idle) onPick();
       }}
     >
       {/* stand */}
@@ -675,16 +718,16 @@ function Props() {
         <meshStandardMaterial color="#2a1c13" roughness={0.85} />
       </mesh>
       {/* mug */}
-      <mesh position={[3.75, 0.24, -0.6]} castShadow receiveShadow>
+      <mesh position={[3.7, 0.24, -0.6]} castShadow receiveShadow>
         <cylinderGeometry args={[0.22, 0.2, 0.48, 28]} />
         <meshStandardMaterial color="#e8e4f0" roughness={0.35} />
       </mesh>
-      <mesh position={[3.99, 0.26, -0.6]} rotation={[0, 0, Math.PI / 2]} castShadow>
+      <mesh position={[3.94, 0.26, -0.6]} rotation={[0, 0, Math.PI / 2]} castShadow>
         <torusGeometry args={[0.1, 0.03, 10, 20, Math.PI]} />
         <meshStandardMaterial color="#e8e4f0" roughness={0.35} />
       </mesh>
       {/* pens and a pencil standing in the mug */}
-      <group position={[3.75, 0, -0.6]}>
+      <group position={[3.7, 0, -0.6]}>
         <mesh position={[-0.06, 0.62, 0.02]} rotation={[0.12, 0, 0.22]} castShadow>
           <cylinderGeometry args={[0.028, 0.028, 0.85, 12]} />
           <meshStandardMaterial color="#1d4ed8" roughness={0.35} />
