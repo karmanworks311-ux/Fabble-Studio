@@ -85,8 +85,10 @@ function Rig({ focus, onRect }: { focus: Focus; onRect: (r: ScreenRect | null) =
       const { width: w, height: h } = (screen.geometry as PlaneGeometry).parameters;
       screen.getWorldPosition(goalTarget);
       screen.getWorldQuaternion(tmpQ);
-      const fill = focus === "laptop" ? 0.82 : 0.86;
-      const dist = Math.max(h / (2 * half * fill), w / (2 * half * aspect * fill));
+      // portrait (phones): the laptop is width-bound with spare height, so it runs nearly edge to edge;
+      // the phone is height-bound and any taller would slide under the top bar
+      const [fillH, fillW] = focus === "laptop" ? [0.82, aspect < 1 ? 0.96 : 0.82] : [0.86, 0.86];
+      const dist = Math.max(h / (2 * half * fillH), w / (2 * half * aspect * fillW));
       goalPos
         .copy(new Vector3(0, 0, 1).applyQuaternion(tmpQ))
         .multiplyScalar(dist)

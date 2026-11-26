@@ -34,6 +34,17 @@ export function Work() {
         stagger: 0.1,
         scrollTrigger: { trigger: ".work-intro", start: "top 85%" },
       });
+      gsap.fromTo(
+        ".work-mark",
+        { backgroundSize: "0% 100%" },
+        {
+          backgroundSize: "100% 100%",
+          duration: 1.4,
+          delay: 0.4,
+          ease: "power2.inOut",
+          scrollTrigger: { trigger: ".work-intro", start: "top 75%" },
+        },
+      );
 
       gsap.from(".desk", {
         y: 80,
@@ -61,8 +72,11 @@ export function Work() {
           <h2 id="work-title" className="work-head display text-[clamp(2.4rem,5.2vw,5.75rem)] md:col-span-8">
             Selected work.
           </h2>
-          <p className="work-intro max-w-[38ch] text-lg leading-relaxed text-mist md:col-span-4 md:pb-4">
-            Pick up the phone or the laptop and try them yourself.
+          <p className="work-intro max-w-[30ch] text-xl font-medium leading-snug text-paper md:col-span-4 md:pb-4 md:text-2xl">
+            {/* marker swipe: GSAP grows background-size 0%→100% on scroll; stays full when motion is reduced */}
+            <span className="work-mark rounded-sm bg-[linear-gradient(90deg,color-mix(in_srgb,var(--color-violet)_55%,transparent),color-mix(in_srgb,var(--color-ember-hot)_55%,transparent))] bg-[length:100%_100%] bg-no-repeat px-1 [box-decoration-break:slice]">
+              Pick up the phone or the laptop and try them yourself.
+            </span>
           </p>
         </div>
 

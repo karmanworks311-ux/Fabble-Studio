@@ -106,7 +106,7 @@ export function Process() {
   );
 
   return (
-    <section id="process" ref={root} aria-labelledby="process-title" className="relative isolate px-[var(--gutter)] py-28 md:py-40">
+    <section id="process" ref={root} aria-labelledby="process-title" className="relative isolate px-[var(--gutter)] pb-12 pt-28 md:pb-16 md:pt-40">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10"
@@ -150,7 +150,7 @@ export function Process() {
             <li
               key={s.title}
               className={cn(
-                "process-step flex min-h-[60vh] flex-col justify-center py-12 transition-opacity duration-500 md:pl-12 lg:min-h-[85vh]",
+                "process-step flex min-h-[60vh] flex-col justify-center py-12 transition-opacity duration-500 md:pl-12 lg:min-h-[85vh] lg:last:min-h-[55vh]",
                 active === i ? "opacity-100" : "opacity-40",
               )}
             >

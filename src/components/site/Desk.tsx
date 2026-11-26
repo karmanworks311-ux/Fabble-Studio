@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { motion } from "motion/react";
-import { ArrowUpRight, Laptop, Lightbulb, LightbulbOff, Smartphone, X } from "lucide-react";
+import { ArrowUp, ArrowUpRight, Laptop, MousePointer2, Lightbulb, LightbulbOff, Smartphone, X } from "lucide-react";
 import type { SiteProject } from "@/lib/work";
 import { useStored } from "@/lib/useStored";
 import { cn } from "@/lib/utils";
@@ -165,6 +165,8 @@ export function Desk() {
 
   const onSite = useCallback((s: SiteProject | null) => setSite(s), []);
   const a = box && arrange(box);
+  // only read after a device is picked up, so it never runs during server render
+  const verb = mode !== "desk" && matchMedia("(pointer: coarse)").matches ? "Tap" : "Click";
   const spring = reduce.current ? { duration: 0 } : { type: "spring" as const, damping: 30, stiffness: 140, mass: 1.1 };
 
   // where the device must sit (and what to clip) so its screen covers `r`, the 3D screen's rect in the stage
@@ -263,6 +265,11 @@ export function Desk() {
         </>
       )}
 
+      {/* holding a device: a click anywhere off it puts it down (the "Put it down" button is easy to miss) */}
+      {mode !== "desk" && (
+        <button type="button" tabIndex={-1} aria-hidden onClick={() => setMode("desk")} className="absolute inset-0 z-[5] cursor-zoom-out" />
+      )}
+
       {/* devices */}
       {(["laptop", "phone"] as const).map((which) => {
         const held = mode === which;
@@ -329,6 +336,30 @@ export function Desk() {
         ))}
       </motion.div>
 
+      {/* laptop how-to at a readable size: the in-screen hint shrinks to a few pixels on phones */}
+      <motion.div
+        initial={false}
+        animate={{ opacity: mode === "laptop" && arrived ? 1 : 0, y: mode === "laptop" && arrived ? 0 : 12 }}
+        aria-live="polite"
+        // landscape: the laptop fills the stage and the card would cover its dock; the top label guides there
+        className="pointer-events-none absolute inset-x-3 bottom-5 z-[90] flex justify-center md:bottom-8 landscape:hidden"
+      >
+        <div className="flex max-w-md items-start gap-3 rounded-2xl bg-ink/85 px-4 py-3 text-left ring-1 ring-white/15 backdrop-blur-md">
+          <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-paper text-ink">
+            {site ? <MousePointer2 className="size-4" aria-hidden /> : <ArrowUp className="size-4" aria-hidden />}
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-paper md:text-base">
+              {site ? `Scroll inside the screen to explore ${site.name}` : `${verb} a logo in the laptop's dock to open a project`}
+            </p>
+            <p className="mt-0.5 text-xs text-mist md:text-sm">
+              {site ? `${verb} another logo to switch · ` : ""}
+              {verb} outside the laptop to put it down
+            </p>
+          </div>
+        </div>
+      </motion.div>
+
       {/* top bar: lamp switch, what to do, put it down */}
       <div className="absolute inset-x-3 top-3 z-[90] flex items-center gap-3 md:inset-x-5 md:top-5">
         <button
@@ -341,7 +372,7 @@ export function Desk() {
           {lamp ? <Lightbulb className="size-3.5 text-[#ffc36b]" aria-hidden /> : <LightbulbOff className="size-3.5" aria-hidden />}
           <span className="hidden sm:inline">Lamp {lamp ? "on" : "off"}</span>
         </button>
-        <p aria-live="polite" className="min-w-0 flex-1 truncate text-center text-xs text-mist md:text-sm">
+        <p aria-live="polite" className="min-w-0 flex-1 text-balance text-center text-xs leading-snug text-mist md:text-sm">
           {label}
           {mode === "laptop" && site?.url && (
             <a
