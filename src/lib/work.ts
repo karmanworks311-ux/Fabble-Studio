@@ -1,9 +1,9 @@
 // Portfolio content for the Work section. Files live in /public/media/reels.
 // Each reel has: reel-N.mp4 (full quality, sound), reel-N-preview.mp4 (8s muted loop), reel-N-poster.jpg.
 export const reels = [
+  { id: 3, title: "Studio session", kind: "Podcast cut", duration: "0:33" },
   { id: 1, title: "Before and after", kind: "Talking head", duration: "0:51" },
   { id: 2, title: "Creator promo", kind: "Social edit", duration: "0:32" },
-  { id: 3, title: "Studio session", kind: "Podcast cut", duration: "0:33" },
   { id: 4, title: "Story with motion", kind: "Motion graphics", duration: "0:38" },
   { id: 5, title: "Local business ad", kind: "Ad creative", duration: "1:25" },
 ] as const;
