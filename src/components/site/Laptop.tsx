@@ -107,7 +107,7 @@ export function LaptopDevice({
           >
             {/* desktop: big faint mark */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/media/logo-mark.png" alt="" aria-hidden className="absolute left-1/2 top-[44%] w-[13%] -translate-x-1/2 -translate-y-1/2 opacity-20" />
+            <img src="/media/logo-3d.png" alt="" aria-hidden className="absolute left-1/2 top-[44%] w-[13%] -translate-x-1/2 -translate-y-1/2 opacity-20" />
 
             {/* menu bar */}
             <div className="absolute inset-x-0 top-0 z-10 flex h-[3.2cqw] items-center gap-[1.6cqw] bg-black/30 px-[1.4cqw] text-[1.15cqw] backdrop-blur-md">

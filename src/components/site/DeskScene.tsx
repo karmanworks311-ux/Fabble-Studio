@@ -443,9 +443,11 @@ function Laptop({ lamp, idle, onPick }: { lamp: boolean; idle: boolean; onPick: 
         c.fillRect(0, 0, 1600, 1000);
       }
       const logo = img["/media/logo-mark.png"];
-      if (logo) {
+      // wallpaper logo: same spot and size as the live desktop (13% wide, centred at 44% down)
+      const mark = img["/media/logo-3d.png"];
+      if (mark) {
         c.globalAlpha = 0.22;
-        c.drawImage(logo, 700, 340, 200, 200);
+        c.drawImage(mark, 800 - 104, 440 - 104, 208, 208);
         c.globalAlpha = 1;
       }
       // menu bar
@@ -529,7 +531,7 @@ function Laptop({ lamp, idle, onPick }: { lamp: boolean; idle: boolean; onPick: 
       c.lineTo(rx + 62, ry + 38);
       c.stroke();
     },
-    ["/media/logo-mark.png", ...sites.map((s) => s.logo)],
+    ["/media/logo-mark.png", "/media/logo-3d.png", ...sites.map((s) => s.logo)],
     [now],
   );
 
