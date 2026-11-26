@@ -92,32 +92,31 @@ export function PhoneDevice({ awake, demo, onDemoDone }: { awake: boolean; demo:
     );
     root.querySelectorAll("[data-i]").forEach((el) => io.observe(el));
 
-    // one wheel flick = one reel (small wheel deltas would otherwise snap back); past the last reel it loops to the first
+    // one wheel flick = one reel (small wheel deltas would otherwise snap back)
     let lockedUntil = 0;
-    const current = () => Math.round(root.scrollTop / root.clientHeight);
-    const toFirst = () => root.scrollTo({ top: 0, behavior: "smooth" });
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const next = current() + Math.sign(e.deltaY);
-      if (!e.deltaY || next < 0 || e.timeStamp < lockedUntil) return;
+      const next = Math.round(root.scrollTop / root.clientHeight) + Math.sign(e.deltaY);
+      if (!e.deltaY || next < 0 || next > reels.length || e.timeStamp < lockedUntil) return;
       lockedUntil = e.timeStamp + 700;
-      if (next >= reels.length) return toFirst();
       root.scrollTo({ top: next * root.clientHeight, behavior: "smooth" });
     };
-    // touch: snap scrolling handles reel to reel; only a swipe up on the last reel needs the loop
-    let startY = 0;
-    const onTouchStart = (e: TouchEvent) => (startY = e.touches[0].clientY);
-    const onTouchEnd = (e: TouchEvent) => {
-      if (current() === reels.length - 1 && startY - e.changedTouches[0].clientY > 50) toFirst();
+    // endless feed: after the last reel comes a copy of the first; once the scroll settles on it,
+    // jump (unseen) to the real first reel, so scrolling on just keeps going
+    let settle: ReturnType<typeof setTimeout>;
+    const onScroll = () => {
+      clearTimeout(settle);
+      settle = setTimeout(() => {
+        if (Math.round(root.scrollTop / root.clientHeight) === reels.length) root.scrollTo({ top: 0, behavior: "instant" });
+      }, 120);
     };
     root.addEventListener("wheel", onWheel, { passive: false });
-    root.addEventListener("touchstart", onTouchStart, { passive: true });
-    root.addEventListener("touchend", onTouchEnd);
+    root.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       io.disconnect();
+      clearTimeout(settle);
       root.removeEventListener("wheel", onWheel);
-      root.removeEventListener("touchstart", onTouchStart);
-      root.removeEventListener("touchend", onTouchEnd);
+      root.removeEventListener("scroll", onScroll);
     };
   }, []);
 
@@ -205,9 +204,9 @@ export function PhoneDevice({ awake, demo, onDemoDone }: { awake: boolean; demo:
               aria-label="Reels feed, scroll for the next reel"
               className="absolute inset-0 snap-y snap-mandatory overflow-y-auto [scrollbar-width:none] focus-visible:outline-none [&::-webkit-scrollbar]:hidden"
             >
-              {reels.map((r, i) => (
+              {[...reels, reels[0]].map((r, i) => (
                 <ReelSlide
-                  key={r.id}
+                  key={`${r.id}-${i}`}
                   reel={r}
                   index={i}
                   active={awake && unlocked && i === active}
