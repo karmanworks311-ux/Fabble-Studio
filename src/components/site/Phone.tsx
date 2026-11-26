@@ -32,11 +32,12 @@ import { cn } from "@/lib/utils";
 import { Ghost, useDemo } from "./Ghost";
 
 // notification-style nudges, one at a time, until the visitor has tried each thing
+// the profile comes first: visiting our Instagram is the one that matters most
 const hints = [
+  { id: "profile", text: `Try tapping ${studio.instagram.handle} to see our profile` },
   { id: "like", text: "Tap ♥ to like this reel" },
   { id: "comment", text: "Tap the bubble to leave us a comment" },
   { id: "repost", text: "Tap ↻ to repost it" },
-  { id: "profile", text: `Tap ${studio.instagram.handle} to visit our profile` },
   { id: "sound", text: "Tap the video to turn the sound on" },
   { id: "swipe", text: "Swipe up for the next reel" },
 ] as const;
@@ -183,7 +184,10 @@ export function PhoneDevice({ awake, demo, onDemoDone }: { awake: boolean; demo:
   );
 
   const untried = hints.filter((h) => !tried.includes(h.id));
-  const hint = untried.length ? untried[cycle % untried.length] : null;
+  // until the profile is visited, every other nudge is the profile one
+  const others = untried.filter((h) => h.id !== "profile");
+  const profileLeft = untried.length > others.length;
+  const hint = profileLeft && (cycle % 2 === 0 || !others.length) ? hints[0] : others.length ? others[Math.floor(cycle / (profileLeft ? 2 : 1)) % others.length] : null;
   const showHints = awake && unlocked && !commentsFor && !ghost;
   const hintId = hint?.id;
   useEffect(() => {
