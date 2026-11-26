@@ -482,14 +482,26 @@ function Laptop({ lamp, idle, onPick }: { lamp: boolean; idle: boolean; onPick: 
         roundRect(c, x, top + pad, size, size, 21);
         c.fill();
       };
+      // each site's logo on its tile, fitted like the live dock (object-contain, small inset unless the logo is the tile)
       sites.forEach((s, i) => {
         const x = dx + pad + i * (size + gap);
-        tile(x, `rgba(${s.accent},1)`, `rgba(${s.accent},0.6)`);
-        c.fillStyle = "white";
-        c.font = "700 42px system-ui, sans-serif";
-        c.textAlign = "center";
-        c.fillText(s.name[0], x + size / 2, top + pad + size / 2 + 15);
-        c.textAlign = "left";
+        const y = top + pad;
+        c.save();
+        roundRect(c, x, y, size, size, 21);
+        c.clip();
+        if (s.logoBg !== "transparent") {
+          c.fillStyle = s.logoBg;
+          c.fillRect(x, y, size, size);
+        }
+        const mark = img[s.logo];
+        if (mark) {
+          const inset = s.logoBg === "transparent" ? 0 : 10;
+          const k = Math.min((size - inset * 2) / mark.width, (size - inset * 2) / mark.height);
+          const w = mark.width * k;
+          const h = mark.height * k;
+          c.drawImage(mark, x + (size - w) / 2, y + (size - h) / 2, w, h);
+        }
+        c.restore();
       });
       const lx = dx + pad + n * size + (n - 1) * gap + gap + div / 2;
       c.fillStyle = "rgba(255,255,255,0.25)";
@@ -517,7 +529,7 @@ function Laptop({ lamp, idle, onPick }: { lamp: boolean; idle: boolean; onPick: 
       c.lineTo(rx + 62, ry + 38);
       c.stroke();
     },
-    ["/media/logo-mark.png"],
+    ["/media/logo-mark.png", ...sites.map((s) => s.logo)],
     [now],
   );
 

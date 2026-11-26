@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { BatteryFull, ChevronLeft, ChevronRight, Clapperboard, Lock, RotateCw, Wifi } from "lucide-react";
-import { sites, type SiteProject } from "@/lib/work";
+import { sites, type SiteProject, type SiteVideo } from "@/lib/work";
 import { cn } from "@/lib/utils";
 import { clockMenu } from "@/lib/clock";
 import { Ghost, useDemo } from "./Ghost";
@@ -166,11 +166,12 @@ export function LaptopDevice({
                         onClick={() => setTab(i)}
                         aria-pressed={i === tab}
                         className={cn(
-                          "flex h-[2.6cqw] w-[15cqw] items-center gap-[0.7cqw] rounded-t-[0.7cqw] px-[1cqw] text-[1.1cqw]",
+                          "flex h-[2.6cqw] w-[15cqw] min-w-0 shrink items-center gap-[0.7cqw] rounded-t-[0.7cqw] px-[1cqw] text-[1.1cqw]",
                           i === tab ? "bg-[#2a2a32] text-white" : "text-white/55 hover:bg-white/5",
                         )}
                       >
-                        <span className="size-[1.2cqw] shrink-0 rounded-[0.3cqw]" style={{ background: `rgb(${s.accent})` }} />
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={s.logo} alt="" className="size-[1.4cqw] shrink-0 rounded-[0.3cqw] object-contain" style={{ background: s.logoBg }} />
                         <span className="truncate">{s.name}</span>
                       </button>
                     ))}
@@ -200,15 +201,10 @@ export function LaptopDevice({
                     }}
                     onScroll={(e) => (scrolls.current[site.name] = e.currentTarget.scrollTop)}
                     tabIndex={0}
-                    aria-label={`${site.name} website, scrollable`}
-                    className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white [scrollbar-color:rgba(0,0,0,0.3)_transparent] [scrollbar-width:thin] focus-visible:outline-none"
+                    aria-label={`${site.name} homepage, scroll to move through it`}
+                    className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white [container-type:size] [scrollbar-color:rgba(0,0,0,0.3)_transparent] [scrollbar-width:thin] focus-visible:outline-none"
                   >
-                    {site.image ? (
-                      // eslint-disable-next-line @next/next/no-img-element -- a very tall screenshot; next/image would only add resize work
-                      <img src={site.image} alt={`Full-page screenshot of the ${site.name} website`} decoding="async" width={1440} className="block h-auto w-full" />
-                    ) : (
-                      <SiteMock accent={site.accent} />
-                    )}
+                    {site.video ? <ScrollVideo key={site.name} name={site.name} v={site.video} page={page} /> : <SiteMock accent={site.accent} />}
                   </div>
                 </motion.div>
               )}
@@ -224,10 +220,11 @@ export function LaptopDevice({
                   onClick={() => openSite(i)}
                   aria-label={open && i === tab ? `Minimise ${s.name}` : `Open ${s.name}`}
                   title={s.name}
-                  className="group/dock relative flex size-[5.4cqw] items-center justify-center rounded-[1.3cqw] text-[2.6cqw] font-bold shadow-[0_0.6cqw_1.2cqw_rgba(0,0,0,0.35)] transition-transform duration-200 hover:-translate-y-[0.8cqw] hover:scale-110"
-                  style={{ background: `linear-gradient(145deg, rgba(${s.accent},1), rgba(${s.accent},0.6))` }}
+                  className="group/dock relative flex size-[5.4cqw] items-center justify-center rounded-[1.3cqw] shadow-[0_0.6cqw_1.2cqw_rgba(0,0,0,0.35)] transition-transform duration-200 hover:-translate-y-[0.8cqw] hover:scale-110"
+                  style={{ background: s.logoBg }}
                 >
-                  {s.name[0]}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={s.logo} alt="" className={cn("size-full rounded-[1.3cqw] object-contain", s.logoBg !== "transparent" && "p-[0.6cqw]")} />
                   <span className="pointer-events-none absolute -top-[3.2cqw] whitespace-nowrap rounded-[0.5cqw] bg-black/70 px-[0.8cqw] py-[0.3cqw] text-[1.1cqw] font-medium opacity-0 transition-opacity group-hover/dock:opacity-100">
                     {s.name}
                   </span>
@@ -251,6 +248,70 @@ export function LaptopDevice({
         </div>
       </div>
       <LaptopBase />
+    </div>
+  );
+}
+
+/**
+ * A homepage recording driven by the window's scroll: the intro plays once, then scroll position picks the frame.
+ * A tall spacer gives the window the page's real scroll distance; the video stays pinned to the view.
+ */
+function ScrollVideo({ name, v, page }: { name: string; v: SiteVideo; page: React.RefObject<HTMLDivElement | null> }) {
+  const video = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const el = video.current;
+    const box = page.current;
+    if (!el || !box) return;
+    let intro = box.scrollTop === 0;
+    let raf = 0;
+    const seek = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const max = box.scrollHeight - box.clientHeight;
+        const p = max > 0 ? box.scrollTop / max : 0;
+        el.currentTime = v.hold + p * (v.scrollEnd - v.hold);
+      });
+    };
+    const start = () => (intro ? el.play().catch(() => {}) : seek());
+    const onTime = () => {
+      if (intro && el.currentTime >= v.hold) {
+        intro = false;
+        el.pause();
+      }
+    };
+    const onScroll = () => {
+      if (intro) {
+        intro = false;
+        el.pause();
+      }
+      seek();
+    };
+    el.addEventListener("timeupdate", onTime);
+    box.addEventListener("scroll", onScroll, { passive: true });
+    if (el.readyState >= 1) start();
+    else el.addEventListener("loadedmetadata", start, { once: true });
+    return () => {
+      cancelAnimationFrame(raf);
+      el.removeEventListener("timeupdate", onTime);
+      el.removeEventListener("loadedmetadata", start);
+      box.removeEventListener("scroll", onScroll);
+    };
+  }, [v, page]);
+
+  // scroll distance = the page's own, scaled from its 1440px-wide recording to this window's width
+  return (
+    <div style={{ height: `calc(100cqh + ${((v.pageHeight - 900) / 1440) * 100}cqw)` }}>
+      <video
+        ref={video}
+        src={v.src}
+        poster={v.poster}
+        muted
+        playsInline
+        preload="auto"
+        aria-label={`Recording of the ${name} homepage`}
+        className="sticky top-0 h-[100cqh] w-full object-cover object-top"
+      />
     </div>
   );
 }
