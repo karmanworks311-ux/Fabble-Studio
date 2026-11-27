@@ -32,14 +32,14 @@ type Props = {
 /** The 3D desk: lamp, laptop on a cooling pad, phone on a stand. Clicking a device picks it up (the camera flies to its screen). */
 export default function DeskScene({ focus, lamp, onToggleLamp, onPick, onScreenRect, onReady, active }: Props) {
   const small = typeof window !== "undefined" && innerWidth < 768;
+  // nothing is drawn until the shaders have compiled in the background (see Warm)
+  const [warm, setWarm] = useState(false);
   return (
     <Canvas
       className="!absolute inset-0 [mask-image:linear-gradient(to_bottom,transparent,black_12%,black_86%,transparent)]"
       dpr={[1, 1.5]}
       // the desk is still most of the time: draw a frame only when something moves (camera, lamp, hover)
-      frameloop={active ? "demand" : "never"}
-      // reveal once the first frame is on screen
-      onCreated={() => requestAnimationFrame(() => requestAnimationFrame(onReady))}
+      frameloop={active && warm ? "demand" : "never"}
       shadows="percentage"
       camera={{ position: [0, 3.4, 8], fov: 34, near: 0.1, far: 60 }}
     >
@@ -50,8 +50,35 @@ export default function DeskScene({ focus, lamp, onToggleLamp, onPick, onScreenR
       <Laptop lamp={lamp} idle={focus === "desk"} onPick={() => onPick("laptop")} />
       <Phone lamp={lamp} idle={focus === "desk"} onPick={() => onPick("phone")} />
       <Props />
+      <Warm
+        onDone={() => {
+          setWarm(true);
+          // reveal once the first frame is on screen
+          requestAnimationFrame(() => requestAnimationFrame(onReady));
+        }}
+      />
     </Canvas>
   );
+}
+
+/**
+ * Compiles every shader off the main thread before the first frame. Without this the first
+ * render links them synchronously, which froze scrolling for ~0.5 s as the page neared the desk.
+ * Mounted last, so the whole scene is in place when its effect runs.
+ */
+function Warm({ onDone }: { onDone: () => void }) {
+  const { gl, scene, camera } = useThree();
+  useEffect(() => {
+    let live = true;
+    gl.compileAsync(scene, camera)
+      .catch(() => {}) // on failure the first frame just compiles as before
+      .then(() => live && onDone());
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per scene
+  }, [gl, scene, camera]);
+  return null;
 }
 
 /* ---------------------------------------------------------------- camera */

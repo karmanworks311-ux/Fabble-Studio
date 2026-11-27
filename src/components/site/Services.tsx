@@ -4,7 +4,7 @@ import { useRef } from "react";
 import gsap from "gsap";
 import { SplitText } from "gsap/SplitText";
 import { useGSAP } from "@gsap/react";
-import { ArrowUpRight, Clock } from "lucide-react";
+import { Clock } from "lucide-react";
 import { LoopVideo } from "./LoopVideo";
 import { scrollToId } from "./scroll";
 
@@ -149,8 +149,11 @@ export function Services() {
                     className="craft-fade group/cta inline-flex items-center gap-2 rounded-full bg-paper py-2.5 pl-5 pr-2.5 text-[0.95rem] font-medium text-ink transition-colors duration-300 hover:bg-white"
                   >
                     {c.cta}
-                    <span className="flex size-7 items-center justify-center rounded-full bg-ink text-paper transition-transform duration-500 [transition-timing-function:var(--ease-out-expo)] group-hover/cta:rotate-45">
-                      <ArrowUpRight className="size-4" aria-hidden />
+                    <span className="flex size-7 items-center justify-center rounded-full bg-ink text-paper transition-transform duration-500 [transition-timing-function:var(--ease-out-expo)] group-hover/cta:rotate-[-45deg]">
+                      {/* same play mark as the FlowButton CTAs */}
+                      <svg viewBox="0 0 12 12" className="size-3" fill="currentColor" aria-hidden>
+                        <path d="M2 1.5 10.5 6 2 10.5z" />
+                      </svg>
                     </span>
                   </a>
                 </div>
